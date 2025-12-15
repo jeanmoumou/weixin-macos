@@ -195,4 +195,4 @@ analyze_all_args()
 example_usage()
 """
 
-print_register_struct("X27", 64, 5)
+print_register_struct("X1", 128, 3)
