@@ -1,9 +1,8 @@
 // 1. 获取微信主模块的基地址
-var baseAddr = Process.getModuleByName("WeChat").base;
+var baseAddr = Module.findBaseAddress("WeChat");
 if (!baseAddr) {
     console.log("[!] 找不到 WeChat 模块基址，请检查进程名。");
 }
-console.log("[*] WeChat base address: " + baseAddr);
 
 // 假设 0x10444A99C 是相对于 0x100000000 的地址
 const triggerFuncAddr = baseAddr.add(0x444A99C);
@@ -58,62 +57,41 @@ function setupSendMessageDynamic() {
 
     // A. 写入字符串内容
     patchHex(cgiAddr, "2F 63 67 69 2D 62 69 6E 2F 6D 69 63 72 6F 6D 73 67 2D 62 69 6E 2F 6E 65 77 73 65 6E 64 6D 73 67");
-    patchHex(contentAddr, " ");
+    patchHex(contentAddr, "77 77 77"); // "www"
 
     // B. 构建 SendMessage 结构体 (X24 基址位置)
     sendMessageAddr.add(0x00).writeU64(0);
     sendMessageAddr.add(0x08).writeU64(0);
-    sendMessageAddr.add(0x10).writePointer(baseAddr.add(0xEDB4678)); // 虚表地址通常仍需硬编码或从模块基址计算
+    sendMessageAddr.add(0x10).writeU64(uint64("0x10EDB4678")); // 虚表地址通常仍需硬编码或从模块基址计算
     sendMessageAddr.add(0x18).writeU64(1);
     sendMessageAddr.add(0x20).writeU32(taskId);
     sendMessageAddr.add(0x28).writePointer(messageAddr); // 指向动态分配的 Message
 
-    console.log(" [+] sendMessageAddr Object: ", hexdump(sendMessageAddr,  {
-        offset: 0,
-        length: 48,
-        header: true,
-        ansi: true
-    }));
-
     // C. 构建 Message 结构体
-    messageAddr.add(0x00).writePointer(baseAddr.add(0x7f04f70));
+    messageAddr.add(0x00).writeU64(uint64("0x107f04f70"));
     messageAddr.add(0x08).writeU32(taskId);
     messageAddr.add(0x0c).writeU32(0x20a);
-    messageAddr.add(0x10).writeU64(0x3);
-    messageAddr.add(0x18).writePointer(cgiAddr);
+    messageAddr.add(0x10).writeU64(3);
+    messageAddr.add(0x18).writePointer(cgiAddr); // 指向动态分配的 CGI 字符串
 
     // 设置一些固定值
     messageAddr.add(0x20).writeU64(uint64("0x20"));
     messageAddr.add(0x28).writeU64(uint64("0x8000000000000030"));
-    messageAddr.add(0x30).writeU64(uint64("0x0000000001010100"));
     messageAddr.add(0x58).writeU64(uint64("0x0101010100000001"));
 
     // 处理回调地址
-    callBackFuncAddr.writePointer(baseAddr.add(0x7f04fc8));
-    messageAddr.add(0x98).writePointer(callBackFuncAddr);
+    callBackFuncAddr.writeU64(uint64("0x107f04fc8"));
+    messageAddr.add(0x98).writePointer(callBackFuncAddress);
 
     // 设置内容指针
-    messageAddr.add(0xb8).writePointer(baseAddr.add(0x7f96918));
     messageAddr.add(0xc0).writePointer(messageContentAddr);
-    messageAddr.add(0xc8).writeU64(uint64("0x0000000100000001"));
-    messageAddr.add(0xd0).writeU64(0x4);
-    messageAddr.add(0xd8).writeU64(0x1);
-    messageAddr.add(0xe0).writeU64(0x1);
-    messageAddr.add(0xe8).writeU64(0x107f96a08);
-
-
     messageContentAddr.writePointer(messageAddrAddr);
-    messageAddrAddr.writePointer(baseAddr.add(0x7f968a0));
+    messageAddrAddr.writeU64(uint64("0x107f968a0"));
     messageAddrAddr.add(0x08).writePointer(contentAddr);
 
-    console.log(" [+] messageAddr Object: ", hexdump(messageAddr,  {
-        offset: 0,
-        length: 200,
-        header: true,
-        ansi: true
-    }));
 
-    console.log(" [+] Dynamic Memory Setup Complete. - Message Object: " + messageAddr);
+    console.log("[+] Dynamic Memory Setup Complete.");
+    console.log("    - Message Object: " + messageAddr);
 }
 
 setImmediate(setupSendMessageDynamic);
@@ -127,14 +105,12 @@ function doAttach() {
     // 3. 开始拦截
     Interceptor.attach(targetAddr, {
         onEnter: function (args) {
-            console.log("[*] Entered Function: 0x10444A99C");
-
-            if (!globalMessagePtr.isNull()) {
+            if (globalMessagePtr) {
                 return;
             }
 
             globalMessagePtr = this.context.x0;
-            console.log("[+] globalMessagePtr 当前 X0 的指针值: " + globalMessagePtr);
+            console.log("[+] 当前 X0 的指针值: " + globalMessagePtr);
         },
         onLeave: function (retval) {
         }
@@ -222,23 +198,23 @@ function manualTrigger() {
     // 从 0x175ED6604 开始写入 Payload
     payloadBase.writeU32(taskId);
     payloadBase.add(0x04).writeByteArray(payloadData);
-    payloadBase.add(0x18).writePointer(cgiAddr);
-    console.log("[+] Payload trigger function written to memory.");
+    payloadBase.add(0x18).writeU32(cgiAddr);
+    console.log("[+] Payload written to memory.");
 
-    const sub_10444A99C = new NativeFunction(triggerFuncAddr, 'uint64', ['pointer', 'pointer']);
+    const sub_10444A99C = new NativeFunction(triggerFuncAddr, 'uint64', ['pointer', 'uint64']);
 
     // 5. 调用函数
     try {
         const arg1 = globalMessagePtr; // 第一个指针参数
         const arg2 = payloadBase;        // 第二个参数 0x175ED6600
 
-        console.log(`[*] Calling trigger function  at ${triggerFuncAddr} with args: (${arg1}, ${arg2})`);
+        console.log(`[*] Calling function at ${triggerFuncAddr} with args: (${arg1}, ${arg2})`);
 
         const result = sub_10444A99C(arg1, arg2);
 
-        console.log("[+] Execution trigger function  Success. Return value: " + result);
+        console.log("[+] Execution Success. Return value: " + result);
     } catch (e) {
-        console.log("[!] Error trigger function  during execution: " + e);
+        console.log("[!] Error during execution: " + e);
     }
 }
 
@@ -256,49 +232,42 @@ function attachReq2buf() {
     // 2. 开始拦截
     Interceptor.attach(targetAddr, {
         onEnter: function(args) {
-            if (!this.context.x1.equals(taskId)) {
+            if (args.context.x1 !== taskId) {
                 return;
             }
 
-            console.log("[+] 已命中目标Req2Buf地址:0x1033EE8E8 taskId:" + taskId + "base:" + baseAddr);
+            console.log("[+] 已命中目标地址: " + targetAddr);
 
             // 3. 获取 X24 寄存器的值
             const x24_base = this.context.x24;
             insertMsgAddr = x24_base.add(0x60);
 
-            console.log("[*] 当前 Req2Buf X24 基址: " + x24_base);
-            console.log("[*] 准备修改位置 Req2Buf (X24 + 0x60): " + insertMsgAddr , hexdump(insertMsgAddr, {
-                offset: 0,
-                length: 16,
-                header: true,
-                ansi: true
-            }));
+            console.log("[*] 当前 X24 基址: " + x24_base);
+            console.log("[*] 准备修改位置 (X24 + 0x60): " + insertMsgAddr);
 
             if (typeof sendMessageAddr !== 'undefined') {
+                // 写入 8 字节指针
                 insertMsgAddr.writePointer(sendMessageAddr);
-                console.log("[!] 成功! Req2Buf 已将 X24+0x60 指向新地址: " + sendMessageAddr +
-                    "[+] Req2Buf 写入后内存预览: " + insertMsgAddr, hexdump(insertMsgAddr, {
-                    offset: 0,
-                    length: 16,
-                    header: true,
-                    ansi: true
-                }));
+
+                console.log("[!] 成功! 已将 X24+0x60 指向新地址: " + sendMessageAddr);
+                console.log("[+] 写入后内存预览: " + insertMsgAddr.readPointer());
+                insertMsgAddr = ptr(0x0);
             } else {
                 console.log("[?] 错误: 变量 sendMessageAddr 未定义，请确保已运行分配逻辑。");
             }
         }
     });
 
-    const returnAddr = baseAddr.add(0x33EFA00);
+    returnAddr = baseAddr.add(0x33EFA00);
     console.log("[*] Target Req2buf leave Address: " + targetAddr);
 
     Interceptor.attach(returnAddr, {
         onEnter: function(args) {
-            if (!this.context.x25.equals(taskId)) {
+            if (args.context.x25 !== taskId) {
                 return;
             }
             insertMsgAddr.writePointer(0x0);
-            console.log("[+] 0x1033EFA00 清空写入后内存预览: " + insertMsgAddr.readPointer());
+            console.log("[+] 清空写入后内存预览: " + insertMsgAddr.readPointer());
         }
     });
 }
@@ -306,24 +275,6 @@ function attachReq2buf() {
 // 确保在初始化后执行
 setImmediate(attachReq2buf);
 
-// 辅助函数：Protobuf Varint 编码 (对应 get_varint_timestamp_bytes)
-function getVarintTimestampBytes() {
-    let ts = Math.floor(Date.now() / 1000);
-    let encodedBytes = [];
-    let tempTs = ts >>> 0; // 强制转为 32位 无符号整数
-
-    while (true) {
-        let byte = tempTs & 0x7F;
-        tempTs >>>= 7;
-        if (tempTs !== 0) {
-            encodedBytes.push(byte | 0x80);
-        } else {
-            encodedBytes.push(byte);
-            break;
-        }
-    }
-    return encodedBytes;
-}
 
 /**
  * 模拟 run_patch_script 逻辑的 Frida 脚本
@@ -331,17 +282,39 @@ function getVarintTimestampBytes() {
  */
 
 function attachProto() {
+
     // 1. 计算运行时地址 (假设 IDA 基址 0x100000000)
     const targetHookAddr = baseAddr.add(0x223EF58);
-    console.log("[*] proto注入拦截目标地址: " + targetHookAddr);
+
+    // 2. 预先分配一块持久内存用于存放 Payload (对应 x1_addr)
+    // Memory.alloc 会返回一个在脚本运行期间有效的地址
+    const x1_custom_addr = Memory.alloc(256);
+    console.log("[*] Frida 分配的 Payload 地址: " + x1_custom_addr);
+
+    // 辅助函数：Protobuf Varint 编码 (对应 get_varint_timestamp_bytes)
+    function getVarintTimestampBytes() {
+        let ts = Math.floor(Date.now() / 1000);
+        let encodedBytes = [];
+        let tempTs = ts >>> 0; // 强制转为 32位 无符号整数
+
+        while (true) {
+            let byte = tempTs & 0x7F;
+            tempTs >>>= 7;
+            if (tempTs !== 0) {
+                encodedBytes.push(byte | 0x80);
+            } else {
+                encodedBytes.push(byte);
+                break;
+            }
+        }
+        return encodedBytes;
+    }
 
     // 3. 开始 Attach
     Interceptor.attach(targetHookAddr, {
         onEnter: function(args) {
-            // 2. 预先分配一块持久内存用于存放 Payload (对应 x1_addr)
-            // Memory.alloc 会返回一个在脚本运行期间有效的地址
-            const x1_custom_addr = Memory.alloc(512);
-            console.log("[*] Frida 分配的 Payload 地址: " + x1_custom_addr);
+            console.log("------------------------------------------");
+            console.log("[+] 命中 Hook 地址: " + targetHookAddr);
 
             // --- 构造动态 Payload ---
             const prefix = [

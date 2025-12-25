@@ -24,7 +24,7 @@ def get_varint_timestamp_bytes():
 
 def run_patch_script():
     # --- 1. 设置目标空内存地址 ---
-    x1_addr = idc.get_reg_value("X1")
+    x1_addr = 0x1120eea40
     print(f"[*] 原始 X1 指向地址: {hex(x1_addr)}")
 
     # --- 2. 构造 Payload ---
@@ -63,6 +63,11 @@ def run_patch_script():
         print(f"[*] 成功: 数据已写入 {hex(x1_addr)}")
     else:
         print("[-] 错误: 无法设置 X1 寄存器，请检查寄存器名称。")
+
+    if idc.set_reg_value(0x62, "X2"):
+        print(f"[*] 成功: 数据已写入 {hex(x1_addr)}")
+    else:
+        print("[-] 错误: 无法设置 X2 寄存器，请检查寄存器名称。")
 
 
 # 启动脚本

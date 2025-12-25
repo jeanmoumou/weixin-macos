@@ -4,11 +4,17 @@ cgiAddress = 0x1120eec40
 callBackFuncAddress = 0x1120eec70
 
 sendMessageAddress = 0x1120eed40 # 40 ed 0e 12 01
-
 MessageAddress = 0x1120eee40
 
-MessageContentAddress = 0x1120eed70
+MessageContentAddress = 0x1120eed70 # 70 ed 0e 12 01
 MessageAddrAddr = 0x1120eed80
+ReceiverAddress = 0x1120eeb10
+ReceiverAddrAddr = 0x1120eeb20
+
+ContentAddr = 0x1120eeb50
+HtmlAddr = 0x1120eeb60
+HtmlAddrAddr = 0x1120eeb70
+
 
 def setup_send_message():
     patch_string_at_address(cgiAddress,
@@ -47,7 +53,7 @@ def setup_send_message():
     idc.patch_qword(MessageAddress + 0xa0, 0)
     idc.patch_qword(MessageAddress + 0xa8, 0)
     idc.patch_qword(MessageAddress + 0xb0, 0)
-    idc.patch_qword(MessageAddress + 0xb8, 0x107f96918)
+    idc.patch_qword(MessageAddress + 0xb8, 0x10)
     idc.patch_qword(MessageAddress + 0xc0, MessageContentAddress)
     idc.patch_qword(MessageAddress + 0xc8, 0x0000000100000001)
     idc.patch_qword(MessageAddress + 0xd0, 4)
@@ -57,8 +63,11 @@ def setup_send_message():
 
     # 可能需要修改，再试一下
     idc.patch_qword(MessageContentAddress, MessageAddrAddr)
+
     idc.patch_qword(MessageAddrAddr, 0x107f968a0)
-    idc.patch_qword(MessageAddrAddr, cgiAddress)
+    idc.patch_qword(MessageAddrAddr+0x8, ContentAddr)
+    patch_string_at_address(ContentAddr, "77 77 77")
+
 
 def patch_string_at_address(target_addr, hex_str):
     data = bytes.fromhex(hex_str.replace(" ", "").replace("\n", ""))

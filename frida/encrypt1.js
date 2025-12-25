@@ -1,5 +1,5 @@
 /**
- * wechat_method_finder.js
+ * _method_finder.js
  * 目标: 批量挂钩微信主程序 (WeChat.app) 中所有与消息/加密相关的 Objective-C 方法。
  * 作用: 找到微信内部封装的消息发送、接收、加解密逻辑的“入口”类和方法。
  */

@@ -1,6 +1,7 @@
 import ida_idd
 import ida_bytes
 import idc
+import time
 
 sendMessageAddress = 0x1120eed40
 MessageAddress = 0x1120eee40
@@ -10,9 +11,12 @@ idc.patch_dword(MessageAddress + 0x08, task_id)
 idc.patch_dword(sendMessageAddress + 0x20, task_id)
 idc.patch_dword(0x175ED6600, task_id)
 
+MessageAddrAddr = 0x1120eed80
+idc.patch_dword(MessageAddrAddr+0x18, int(time.time()))
+
 # 改task id， 改 cgi，改第一个指针即可
 payload = (
-    b"\x90\x00\x00\x20\x0A\x02\x00\x00"  # 0x00 // task id / cmd id 175ED6600
+    b"\x0A\x02\x00\x00"  # 0x00 // task id / cmd id 175ED6600
     b"\x00\x00\x00\x00\x00\x00\x00\x00"  # 0x08
     b"\x03\x00\x00\x00\x10\x00\x00\x00"  # 0x10
     b"\x40\xec\x0e\x12\x01\x00\x00\x00"  # 0x18 // cgi 1120eec40 
@@ -70,7 +74,7 @@ ida_bytes.patch_bytes(0x175ED6604, payload)
 my_func = ida_idd.Appcall.proto(0x10444A99C, "long long __fastcall sub_10444A99C(long long *a1, long long a2);")
 
 try:
-    my_func(0x9816A9400, 0x175ED6600)
+    my_func(0x8E1699400, 0x175ED6600)
     print("Executed with manually set X0.")
 except Exception as e:
     print(f"Error: {e}")
