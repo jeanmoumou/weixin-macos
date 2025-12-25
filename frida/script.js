@@ -99,7 +99,7 @@ function setupSendMessageDynamic() {
     messageAddr.add(0xd0).writeU64(0x4);
     messageAddr.add(0xd8).writeU64(0x1);
     messageAddr.add(0xe0).writeU64(0x1);
-    messageAddr.add(0xe8).writeU64(0x107f96a08);
+    messageAddr.add(0xe8).writePointer(baseAddr.add(0x7f96a08));
 
 
     messageContentAddr.writePointer(messageAddrAddr);
@@ -119,7 +119,7 @@ function setupSendMessageDynamic() {
 setImmediate(setupSendMessageDynamic);
 
 
-function doAttach() {
+function setTriggerAttach() {
     var targetAddr = baseAddr.add(0x444A99C);
 
     console.log("[*] WeChat Base: " + baseAddr + "[*] Attaching to: " + targetAddr);
@@ -142,7 +142,7 @@ function doAttach() {
 }
 
 // 使用 setImmediate 确保在模块加载后执行
-setImmediate(doAttach);
+setImmediate(setTriggerAttach);
 
 
 /**
@@ -297,7 +297,7 @@ function attachReq2buf() {
             if (!this.context.x25.equals(taskId)) {
                 return;
             }
-            insertMsgAddr.writePointer(0x0);
+            insertMsgAddr.writeU64(0x0);
             console.log("[+] 0x1033EFA00 清空写入后内存预览: " + insertMsgAddr.readPointer());
         }
     });
@@ -329,20 +329,16 @@ function getVarintTimestampBytes() {
  * 模拟 run_patch_script 逻辑的 Frida 脚本
  * 当命中 10223EF58 时触发内存写入和寄存器修改
  */
-
 function attachProto() {
-    // 1. 计算运行时地址 (假设 IDA 基址 0x100000000)
     const targetHookAddr = baseAddr.add(0x223EF58);
     console.log("[*] proto注入拦截目标地址: " + targetHookAddr);
+    // 2. 预先分配一块持久内存用于存放 Payload (对应 x1_addr)
+    // Memory.alloc 会返回一个在脚本运行期间有效的地址
+    const x1_custom_addr = Memory.alloc(256);
+    console.log("[*] Frida 分配的 Payload 地址: " + x1_custom_addr);
 
-    // 3. 开始 Attach
     Interceptor.attach(targetHookAddr, {
         onEnter: function(args) {
-            // 2. 预先分配一块持久内存用于存放 Payload (对应 x1_addr)
-            // Memory.alloc 会返回一个在脚本运行期间有效的地址
-            const x1_custom_addr = Memory.alloc(512);
-            console.log("[*] Frida 分配的 Payload 地址: " + x1_custom_addr);
-
             // --- 构造动态 Payload ---
             const prefix = [
                 0x08, 0x01, 0x12, 0x5E, 0x0A, 0x15, 0x0A, 0x13, // 0x00
@@ -376,7 +372,12 @@ function attachProto() {
             this.context.x1 = x1_custom_addr;
             this.context.x2 = ptr(0x62);
 
-            console.log("[+] 寄存器修改完成: X1=" + this.context.x1 + ", X2=" + this.context.x2);
+            console.log("[+] 寄存器修改完成: X1=" + this.context.x1 + ", X2=" + this.context.x2, hexdump(x1_custom_addr, {
+                offset: 0,
+                length: 160,
+                header: true,
+                ansi: true
+            }));
         }
     });
 }
