@@ -32,9 +32,10 @@ var messageAddrAddr = ptr(0);
 var contentAddr = ptr(0);
 var insertMsgAddr = ptr(0);
 // 消息的taskId
-var taskId = 0x20000090
-var receiver = "wxid_"
-var content = "hello world";
+var taskIdGlobal = 0x20000090 // 最好比较大，不和原始的微信消息重复
+var receiverGlobal = "wxid_"
+var contentGlobal = "";
+var lastSendTime = 0;
 
 // 打印消息的地址，便于查询问题
 function printAddr() {
@@ -81,7 +82,7 @@ function setupSendMessageDynamic() {
     sendMessageAddr.add(0x08).writeU64(0);
     sendMessageAddr.add(0x10).writePointer(sendMessageCallbackFunc); // 虚表地址通常仍需硬编码或从模块基址计算
     sendMessageAddr.add(0x18).writeU64(1);
-    sendMessageAddr.add(0x20).writeU32(taskId);
+    sendMessageAddr.add(0x20).writeU32(taskIdGlobal);
     sendMessageAddr.add(0x28).writePointer(messageAddr); // 指向动态分配的 Message
 
     console.log(" [+] sendMessageAddr Object: ", hexdump(sendMessageAddr,  {
@@ -93,7 +94,7 @@ function setupSendMessageDynamic() {
 
     // C. 构建 Message 结构体
     messageAddr.add(0x00).writePointer(messageCallbackFunc1);
-    messageAddr.add(0x08).writeU32(taskId);
+    messageAddr.add(0x08).writeU32(taskIdGlobal);
     messageAddr.add(0x0c).writeU32(0x20a);
     messageAddr.add(0x10).writeU64(0x3);
     messageAddr.add(0x18).writePointer(cgiAddr);
@@ -159,19 +160,32 @@ function setTriggerAttach() {
 setImmediate(setTriggerAttach);
 
 
-
-function manualTrigger() {
+function manualTrigger(taskId, receiver, content) {
     console.log("[*] Manual Trigger Started...");
     if (globalMessagePtr.isNull()) {
         console.log("[!] globalMessagePtr is NULL, cannot trigger!");
         return;
     }
 
+    if (taskId.empty() || receiver.empty() || content.empty()) {
+        console.log("[!] taskId or Receiver or Content is empty!");
+        return;
+    }
+
     // 获取当前时间戳 (秒)
     const timestamp = Math.floor(Date.now() / 1000);
+    // 全局变量不为空，并且上次发送时间小于1s，不给发送
+    if ((taskIdGlobal !== 0 || receiverGlobal !== "" || contentGlobal !== "") && lastSendTime + 1 < timestamp) {
+        console.log("[!] taskId or receiver or content is not empty!");
+        return;
+    }
 
-    messageAddr.add(0x08).writeU32(taskId);
-    sendMessageAddr.add(0x20).writeU32(taskId);
+    taskIdGlobal = taskId;
+    receiverGlobal = receiver;
+    contentGlobal = content;
+
+    messageAddr.add(0x08).writeU32(taskIdGlobal);
+    sendMessageAddr.add(0x20).writeU32(taskIdGlobal);
     messageAddrAddr.add(0x18).writeU32(timestamp);
 
     const payloadData = [
@@ -230,7 +244,7 @@ function manualTrigger() {
     ];
 
     // 从 0x175ED6604 开始写入 Payload
-    triggerX1Payload.writeU32(taskId);
+    triggerX1Payload.writeU32(taskIdGlobal);
     triggerX1Payload.add(0x04).writeByteArray(payloadData);
     triggerX1Payload.add(0x18).writePointer(cgiAddr);
 
@@ -260,11 +274,11 @@ function attachReq2buf() {
     // 2. 开始拦截
     Interceptor.attach(req2bufEnterAddr, {
         onEnter: function(args) {
-            if (!this.context.x1.equals(taskId)) {
+            if (!this.context.x1.equals(taskIdGlobal)) {
                 return;
             }
 
-            console.log("[+] 已命中目标Req2Buf地址:0x1033EE8E8 taskId:" + taskId + "base:" + baseAddr);
+            console.log("[+] 已命中目标Req2Buf地址:0x1033EE8E8 taskId:" + taskIdGlobal + "base:" + baseAddr);
 
             // 3. 获取 X24 寄存器的值
             const x24_base = this.context.x24;
@@ -297,11 +311,14 @@ function attachReq2buf() {
     console.log("[*] Target Req2buf leave Address: " + req2bufExitAddr);
     Interceptor.attach(req2bufExitAddr, {
         onEnter: function(args) {
-            if (!this.context.x25.equals(taskId)) {
+            if (!this.context.x25.equals(taskIdGlobal)) {
                 return;
             }
             insertMsgAddr.writeU64(0x0);
             console.log("[+] 0x1033EFA00 清空写入后内存预览: " + insertMsgAddr.readPointer());
+            TaskIdGlobal = 0;
+            receiverGlobal = "";
+            contentGlobal = "";
         }
     });
 }
@@ -364,9 +381,9 @@ function attachProto() {
                 0x08, 0x01, 0x12, 0x5E, 0x0A, 0x15, 0x0A, 0x13, // 0x00
             ];
 
-            const receiverProto = stringToHexArray(receiver);
+            const receiverProto = stringToHexArray(receiverGlobal);
             const contentHeader = [0x12, content.length];
-            const contentProto = stringToHexArray(content);
+            const contentProto = stringToHexArray(contentGlobal);
             const tsHeader = [0x18, 0x01, 0x20];
             const tsBytes = getVarintTimestampBytes();
             const msgIdHeader = [0x28]
