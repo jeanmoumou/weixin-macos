@@ -33,7 +33,7 @@ var contentAddr = ptr(0);
 var insertMsgAddr = ptr(0);
 // 消息的taskId
 var taskId = 0x20000090
-var receiver = "wxid_7wd1ece99f7i21"
+var receiver = "wxid_"
 var content = "hello world";
 
 // 打印消息的地址，便于查询问题
