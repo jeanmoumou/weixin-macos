@@ -1,9 +1,9 @@
 // 1. 获取微信主模块的基地址
 var baseAddr = Process.getModuleByName("WeChat").base;
 if (!baseAddr) {
-    console.log("[!] 找不到 WeChat 模块基址，请检查进程名。");
+    console.error("[!] 找不到 WeChat 模块基址，请检查进程名。");
 }
-console.log("[*] WeChat base address: " + baseAddr);
+console.log("[+] WeChat base address: " + baseAddr);
 
 // 触发函数地址,不同版本的地址看wechat_version 中的json文件复制过来
 var triggerFuncAddr = baseAddr.add(0x444A99C);
@@ -18,6 +18,7 @@ var triggerX1Payload = ptr(0x175ED6600);
 var req2bufEnterAddr = baseAddr.add(0x33EE8E8);
 var req2bufExitAddr = baseAddr.add(0x33EFA00);
 var protobufAddr = baseAddr.add(0x223EF58);
+var receiveAddr = baseAddr.add(0x23B5348);
 
 // 触发函数X0参数地址
 var globalMessagePtr = ptr(0);
@@ -36,10 +37,11 @@ var taskIdGlobal = 0x20000090 // 最好比较大，不和原始的微信消息�
 var receiverGlobal = "wxid_"
 var contentGlobal = "";
 var lastSendTime = 0;
+var messageId = 0;
 
 // 打印消息的地址，便于查询问题
 function printAddr() {
-    console.log("[*] Addresses:");
+    console.log("[+] Addresses:");
     console.log("    - cgiAddr: " + cgiAddr);
     console.log("    - callBackFuncAddr: " + callBackFuncAddr);
     console.log("    - sendMessageAddr: " + sendMessageAddr);
@@ -60,7 +62,7 @@ function patchHex(addr, hexStr) {
 
 // 初始化进行内存的分配
 function setupSendMessageDynamic() {
-    console.log("[*] Starting Dynamic Message Patching...");
+    console.log("[+] Starting Dynamic Message Patching...");
 
     // 1. 动态分配内存块（按需分配大小）
     // 分配原则：字符串给 64-128 字节，结构体按实际大小分配
@@ -85,7 +87,7 @@ function setupSendMessageDynamic() {
     sendMessageAddr.add(0x20).writeU32(taskIdGlobal);
     sendMessageAddr.add(0x28).writePointer(messageAddr); // 指向动态分配的 Message
 
-    console.log(" [+] sendMessageAddr Object: ", hexdump(sendMessageAddr,  {
+    console.log(" [+] sendMessageAddr Object: ", hexdump(sendMessageAddr, {
         offset: 0,
         length: 48,
         header: true,
@@ -123,9 +125,9 @@ function setupSendMessageDynamic() {
     messageAddrAddr.writePointer(messageCallbackFunc5);
     messageAddrAddr.add(0x08).writePointer(contentAddr);
 
-    console.log(" [+] messageAddr Object: ", hexdump(messageAddr,  {
+    console.log(" [+] messageAddr Object: ", hexdump(messageAddr, {
         offset: 0,
-        length: 128,
+        length: 64,
         header: true,
         ansi: true
     }));
@@ -137,12 +139,12 @@ setImmediate(setupSendMessageDynamic);
 
 // 设置trigger函数的x0参数
 function setTriggerAttach() {
-    console.log("[*] WeChat Base: " + baseAddr + "[*] Attaching to: " + triggerFuncAddr);
+    console.log("[+] WeChat Base: " + baseAddr + "[+] Attaching to: " + triggerFuncAddr);
 
     // 3. 开始拦截
     Interceptor.attach(triggerFuncAddr, {
         onEnter: function (args) {
-            console.log("[*] Entered Function: 0x10444A99C");
+            console.log("[+] Entered Function: 0x10444A99C");
 
             if (!globalMessagePtr.isNull()) {
                 return;
@@ -160,24 +162,24 @@ function setTriggerAttach() {
 setImmediate(setTriggerAttach);
 
 
-function manualTrigger(taskId, receiver, content)  {
-    console.log("[*] Manual Trigger Started...");
+function manualTrigger(taskId, receiver, content) {
+    console.log("[+] Manual Trigger Started...");
     if (globalMessagePtr.isNull()) {
-        console.log("[!] globalMessagePtr is NULL, cannot trigger!");
-        return false;
+        console.error("[!] globalMessagePtr is NULL, cannot trigger!");
+        return "fail";
     }
 
     if (!taskId || !receiver || !content) {
-        console.log("[!] taskId or Receiver or Content is empty!");
-        return false;
+        console.error("[!] taskId or Receiver or Content is empty!");
+        return "fail";
     }
 
     // 获取当前时间戳 (秒)
     const timestamp = Math.floor(Date.now() / 1000);
     // 全局变量不为空，并且上次发送时间小于1s，不给发送
     if ((taskIdGlobal !== 0 || receiverGlobal !== "" || contentGlobal !== "") && lastSendTime + 1 > timestamp) {
-        console.log("[!] taskId or receiver or content is not empty!");
-        return false;
+        console.error("[!] taskId or receiver or content is not empty!");
+        return "fail";
     }
 
     lastSendTime = timestamp
@@ -255,13 +257,13 @@ function manualTrigger(taskId, receiver, content)  {
     try {
         const arg1 = globalMessagePtr; // 第一个指针参数
         const arg2 = triggerX1Payload; // 第二个参数 0x175ED6600
-        console.log(`[*] Calling trigger function  at ${triggerFuncAddr} with args: (${arg1}, ${arg2})`);
+        console.log(`[+] Calling trigger function  at ${triggerFuncAddr} with args: (${arg1}, ${arg2})`);
         const result = sub_10444A99C(arg1, arg2);
         console.log("[+] Execution trigger function  Success. Return value: " + result);
-        return true;
+        return "ok";
     } catch (e) {
-        console.log("[!] Error trigger function  during execution: " + e);
-        return false;
+        console.error("[!] Error trigger function  during execution: " + e);
+        return "fail";
     }
 }
 
@@ -269,11 +271,11 @@ function manualTrigger(taskId, receiver, content)  {
 // ReqBuf 进行拦截，替换入参数的消息指针
 function attachReq2buf() {
 
-    console.log("[*] Target Req2buf enter Address: " + req2bufEnterAddr);
+    console.log("[+] Target Req2buf enter Address: " + req2bufEnterAddr);
 
     // 2. 开始拦截
     Interceptor.attach(req2bufEnterAddr, {
-        onEnter: function(args) {
+        onEnter: function (args) {
             if (!this.context.x1.equals(taskIdGlobal)) {
                 return;
             }
@@ -284,8 +286,8 @@ function attachReq2buf() {
             const x24_base = this.context.x24;
             insertMsgAddr = x24_base.add(0x60);
 
-            console.log("[*] 当前 Req2Buf X24 基址: " + x24_base);
-            console.log("[*] 准备修改位置 Req2Buf (X24 + 0x60): " + insertMsgAddr , hexdump(insertMsgAddr, {
+            console.log("[+] 当前 Req2Buf X24 基址: " + x24_base);
+            console.log("[+] 准备修改位置 Req2Buf (X24 + 0x60): " + insertMsgAddr, hexdump(insertMsgAddr, {
                 offset: 0,
                 length: 16,
                 header: true,
@@ -294,7 +296,7 @@ function attachReq2buf() {
 
             if (typeof sendMessageAddr !== 'undefined') {
                 insertMsgAddr.writePointer(sendMessageAddr);
-                console.log("[!] 成功! Req2Buf 已将 X24+0x60 指向新地址: " + sendMessageAddr +
+                console.log("[+] 成功! Req2Buf 已将 X24+0x60 指向新地址: " + sendMessageAddr +
                     "[+] Req2Buf 写入后内存预览: " + insertMsgAddr, hexdump(insertMsgAddr, {
                     offset: 0,
                     length: 16,
@@ -302,15 +304,15 @@ function attachReq2buf() {
                     ansi: true
                 }));
             } else {
-                console.log("[?] 错误: 变量 sendMessageAddr 未定义，请确保已运行分配逻辑。");
+                console.error("[!] 错误: 变量 sendMessageAddr 未定义，请确保已运行分配逻辑。");
             }
         }
     });
 
     // 在出口处拦截req2buf，把insertMsgAddr设置为0，避免被垃圾回收导致整个程序崩溃
-    console.log("[*] Target Req2buf leave Address: " + req2bufExitAddr);
+    console.log("[+] Target Req2buf leave Address: " + req2bufExitAddr);
     Interceptor.attach(req2bufExitAddr, {
-        onEnter: function(args) {
+        onEnter: function (args) {
             if (!this.context.x25.equals(taskIdGlobal)) {
                 return;
             }
@@ -322,6 +324,7 @@ function attachReq2buf() {
         }
     });
 }
+
 setImmediate(attachReq2buf);
 
 // 辅助函数：Protobuf Varint 编码 (对应 get_varint_timestamp_bytes)
@@ -371,13 +374,18 @@ function generateRandom5ByteVarint() {
 // 拦截 Protobuf 编码逻辑，注入自定义 Payload
 function attachProto() {
 
-    console.log("[*] proto注入拦截目标地址: " + protobufAddr);
+    console.log("[+] proto注入拦截目标地址: " + protobufAddr);
 
     const x1_custom_addr = Memory.alloc(256);
-    console.log("[*] Frida 分配的 Payload 地址: " + x1_custom_addr);
+    console.log("[+] Frida 分配的 Payload 地址: " + x1_custom_addr);
 
     Interceptor.attach(protobufAddr, {
-        onEnter: function(args) {
+        onEnter: function (args) {
+            if (lastSendTime === 0) {
+                console.error("[+] 首次发送时间未记录，跳过注入");
+                return;
+            }
+
             const prefix = [
                 0x08, 0x01, 0x12, 0x5E, 0x0A, 0x15, 0x0A, 0x13, // 0x00
             ];
@@ -402,11 +410,10 @@ function attachProto() {
             ];
 
             // 合并数组
-            const finalPayload = prefix.concat(receiverProto).concat(contentHeader).
-            concat(contentProto).concat(tsHeader).concat(tsBytes).concat(msgIdHeader).concat(msgId).concat(suffix);
+            const finalPayload = prefix.concat(receiverProto).concat(contentHeader).concat(contentProto).concat(tsHeader).concat(tsBytes).concat(msgIdHeader).concat(msgId).concat(suffix);
 
             x1_custom_addr.writeByteArray(finalPayload);
-            console.log("[*] Payload 已写入，长度: " + finalPayload.length);
+            console.log("[+] Payload 已写入，长度: " + finalPayload.length);
 
             this.context.x1 = x1_custom_addr;
             this.context.x2 = ptr(finalPayload.length);
@@ -422,3 +429,87 @@ function attachProto() {
 }
 
 setImmediate(attachProto);
+
+function setReceiver() {
+    console.log("[+] WeChat Base: " + baseAddr + "[+] Attaching to: " + receiveAddr);
+
+    // 3. 开始拦截
+    Interceptor.attach(receiveAddr, {
+        onEnter: function (args) {
+            console.log("[+] Entered Receive Function: 0x1023B5348");
+            const x1 = this.context.x1;
+            var sender = x1.add(0x18).readUtf8String();
+            var receiver = x1.add(0x30).readUtf8String();
+
+            // 3. 从 0xd0 开始处理
+            var d0Pos = x1.add(0xd0);
+            var strD0 = "";
+
+            if (isPrintableOrChinese(d0Pos)) {
+                strD0 = d0Pos.readUtf8String();
+                console.log("[+] 0xd0 处不是指针，直接读取完毕");
+            } else {
+                // 情况 B：不符合特征（如包含乱码位或指针特征），视为指针
+                var ptrD0 = d0Pos.readPointer();
+                if (!ptrD0.isNull() && Process.findRangeByAddress(ptrD0)) {
+                    strD0 = ptrD0.readUtf8String();
+                    console.log("[+] 0xd0 识别为：指针跳转读取");
+                } else {
+                    strD0 = "Invalid Data/Pointer";
+                }
+            }
+
+            messageId++
+            send({
+                message_type: "private",
+                user_id: sender,
+                self_id: receiver,
+                message_id: messageId,
+                type: "send",
+                raw: {peerUid: receiver},
+                message: [{type: "text", data: {text: strD0}}]
+            })
+        },
+    });
+}
+
+// 使用 setImmediate 确保在模块加载后执行
+setImmediate(setReceiver)
+
+/**
+ * 扫描内存直到 \0，判断中间内容是否全部为可见字符或汉字
+ */
+function isPrintableOrChinese(startPtr) {
+    let offset = 0;
+    const maxScanLength = 8;
+
+    while (offset < maxScanLength) {
+        let b = startPtr.add(offset).readU8();
+
+        if (b === 0) {
+            // 扫描到 \0，且之前没有发现异常字节
+            return offset > 0; // 如果第一个就是 \0，视为非字符串（可能是空指针）
+        }
+
+        // 判定逻辑：
+        // 1. 可见 ASCII (32-126) 或 换行/制表符 (9, 10, 13)
+        let isAscii = (b >= 32 && b <= 126) || (b === 9 || b === 10 || b === 13);
+
+        // 2. 汉字 UTF-8 特征：第一个字节通常 >= 0x80 (128)
+        // 严谨点：UTF-8 汉字首字节通常在 0xE4-0xE9 之间，后续字节在 0x80-0xBF 之间
+        // 这里简化处理：如果是高位字符，我们暂时放行，由 readUtf8String 最终处理
+        let isHighBit = (b >= 0x80);
+
+        if (!isAscii && !isHighBit) {
+            // 发现既不是 ASCII 也不是高位字节（如 0x01-0x1F 的控制字符），判定为指针
+            return false;
+        }
+        offset++;
+    }
+    return true;
+}
+
+
+rpc.exports = {
+    manualTrigger: manualTrigger
+};

@@ -26,18 +26,21 @@ function handlePr(addr, keyword) {
             counterMap.set(addr, currentCount + 1);
             console.log(`${addr} called ${currentCount} times`);
 
-            try {
-                if (this.context.x0.compare(ptr("0x100000000")) >= 0) {
-                    console.log(`[!] X3 Register Value: ${this.context.x3}`);
-                    dump(this.context.x0)
-                }
+            if (args[0].isNull()) {
+                console.log("args[0] is NULL, skipping hexdump.");
+                return;
+            }
 
-                if (this.context.x20.compare(ptr("0x100000000")) >= 0) {
-                    console.log(`[!] X20 Register Value: ${this.context.x20}`);
-                    dump(this.context.x20)
-                }
+            try {
+                console.log("[*] Hexdump of args[0]:");
+                console.log(hexdump(args[0], {
+                    offset: 0,
+                    length: 256,
+                    header: true,
+                    ansi: true  // 在支持彩色输出的终端（如 macOS 终端）中效果很好
+                }));
             } catch (e) {
-                console.log("Enter Error:", e);
+                console.log("[!] 无法读取内存: " + e.message);
             }
         },
 
@@ -47,8 +50,7 @@ function handlePr(addr, keyword) {
 
 }
 
-
-const prs = ["102B66C30"]
+const prs = ["10438958c", "10434ce6c", "10433c754"]
 const k = "";
 for (let pr of prs) {
     handlePr(pr, k);
@@ -66,42 +68,3 @@ function clearCount() {
 }
 
 
-function dump(xValue) {
-    console.log(`X has a pointer: ${xValue}`);
-
-    let buf = null;
-
-    try {
-        const buf = xValue.readByteArray(512)
-        let s = "";
-        const u8 = new Uint8Array(buf);
-        for (let b of u8) {
-            if (b >= 0x20 && b <= 0x7E) {
-                s += String.fromCharCode(b);
-            } else {
-                s += ".";
-            }
-        }
-
-        console.log(s);
-
-    } catch (e) {
-        console.warn(`[!] 首次读取失败，尝试修改权限... 错误: ${e.message}`);
-
-    }
-
-    // --- 内存读取成功，进行解码 ---
-    if (buf) {
-        let s = "";
-        const u8 = new Uint8Array(buf);
-        // ... (您的解码逻辑)
-        for (let b of u8) {
-            if (b >= 0x20 && b <= 0x7E) {
-                s += String.fromCharCode(b);
-            } else {
-                s += ".";
-            }
-        }
-        console.log(`||  Read String: ${s} \n||  Raw Data: ${u8}`);
-    }
-}
