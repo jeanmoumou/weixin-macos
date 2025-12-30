@@ -5,4 +5,4 @@ __handlers__
 diaphora_batch*
 data
 .venv
-*.go
+go_al/*.go
