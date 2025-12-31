@@ -300,12 +300,19 @@ function attachReq2buf() {
             if (typeof sendMessageAddr !== 'undefined') {
                 insertMsgAddr.writePointer(sendMessageAddr);
                 console.log("[+] 成功! Req2Buf 已将 X24+0x60 指向新地址: " + sendMessageAddr +
-                    "[+] Req2Buf 写入后内存预览: " + insertMsgAddr, hexdump(insertMsgAddr, {
+                    "[+] Req2Buf 写入后内存预览: " + insertMsgAddr);
+                console.log(hexdump(insertMsgAddr, {
                     offset: 0,
                     length: 16,
                     header: true,
                     ansi: true
-                }));
+                }))
+                console.log(hexdump(sendMessageAddr, {
+                    offset: 0,
+                    length: 48,
+                    header: true,
+                    ansi: true
+                }))
             } else {
                 console.error("[!] 错误: 变量 sendMessageAddr 未定义，请确保已运行分配逻辑。");
             }
@@ -382,10 +389,22 @@ function attachProto() {
 
     Interceptor.attach(protobufAddr, {
         onEnter: function (args) {
-            if (lastSendTime === 0) {
-                console.error("[+] 首次发送时间未记录，跳过注入");
+            console.log("[+] Protobuf 拦截命中");
+
+            var sp = this.context.sp;
+            console.log("[+] Protobuf 拦截命中，SP: " + sp, hexdump(sp, {
+                offset: 0,
+                length: 16,
+                header: true,
+                ansi: true
+            }));
+
+            var firstValue = sp.readU32();
+            if (firstValue !== taskIdGlobal) {
+                console.log("[+] Protobuf 拦截未命中，跳过...");
                 return;
             }
+            console.log("[+] 正在注入 Protobuf Payload...");
 
             const type = [0x08, 0x01, 0x12]
             const receiverHeader = [0x0A, 0x15, 0x0A, 0x13];
@@ -415,7 +434,7 @@ function attachProto() {
             const finalPayload = type.concat(valueLen).concat(receiverHeader).concat(receiverProto).concat(contentHeader).
             concat(contentProto).concat(tsHeader).concat(tsBytes).concat(msgIdHeader).concat(msgId).concat(suffix);
 
-
+            console.log("[+] Payload 准备写入");
             protoX1PayloadAddr.writeByteArray(finalPayload);
             console.log("[+] Payload 已写入，长度: " + finalPayload.length);
 
@@ -445,7 +464,7 @@ function toVarint(n) {
 setImmediate(attachProto);
 
 function setReceiver() {
-    console.log("[+] WeChat Base: " + baseAddr + "[+] Attaching to: " + receiveAddr);
+    console.log("[+] setReceiver WeChat Base: " + baseAddr + "[+] Attaching to: " + receiveAddr);
 
     // 3. 开始拦截
     Interceptor.attach(receiveAddr, {

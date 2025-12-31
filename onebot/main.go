@@ -72,7 +72,7 @@ func initFrida() {
 	}
 	
 	fmt.Println("正在尝试 Attach 到微信...")
-	session, err = device.Attach(51873, nil)
+	session, err = device.Attach(47516, nil)
 	if err != nil {
 		log.Fatalf("Attach 失败 (请检查 SIP 状态或权限): %v", err)
 	}
@@ -97,7 +97,7 @@ func loadJs() {
 		
 		switch msgType {
 		case "send":
-			SendHttpReq(msg)
+			go SendHttpReq(msg)
 		case "log":
 			// 这里处理 console.log
 			fmt.Printf("[JS日志] %s\n", msg["payload"])
@@ -167,12 +167,6 @@ func main() {
 	go func() {
 		<-stop
 		fmt.Println("\n正在释放 Frida 资源并退出...")
-		if fridaScript != nil {
-			fridaScript.Unload() // 卸载脚本
-		}
-		if session != nil {
-			session.Detach() // 断开连接
-		}
 		os.Exit(0) // 强制结束进程
 	}()
 	
@@ -186,6 +180,13 @@ func main() {
 }
 
 func SendHttpReq(msg map[string]interface{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("panic: %v\n", r)
+		}
+	}()
+	
+	time.Sleep(1 * time.Second)
 	// 这里处理你的 X1 数据
 	jsonData, err := json.Marshal(msg["payload"])
 	if err != nil {
