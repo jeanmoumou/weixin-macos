@@ -13,6 +13,8 @@ var messageCallbackFunc2 = baseAddr.add(0x7f04fc8);
 var messageCallbackFunc3 = baseAddr.add(0x7f96918);
 var messageCallbackFunc4 = baseAddr.add(0x7f96a08);
 var messageCallbackFunc5 = baseAddr.add(0x7f968a0);
+var messageCallbackFunc6 = baseAddr.add(0x7f9dfe0);
+
 // 这个必须是绝对位置
 var triggerX1Payload = ptr(0x175ED6600);
 var req2bufEnterAddr = baseAddr.add(0x33EE8E8);
@@ -32,6 +34,8 @@ var messageContentAddr = ptr(0);
 var messageAddrAddr = ptr(0);
 var contentAddr = ptr(0);
 var insertMsgAddr = ptr(0);
+var receiverAddr = ptr(0);
+var htmlContentAddr = ptr(0);
 var protoX1PayloadAddr = ptr(0);
 var protoX1PayloadLen = 1024;
 
@@ -40,7 +44,6 @@ var taskIdGlobal = 0x20000090 // 最好比较大，不和原始的微信消息�
 var receiverGlobal = "wxid_"
 var contentGlobal = "";
 var lastSendTime = 0;
-var messageId = 0;
 
 // 打印消息的地址，便于查询问题
 function printAddr() {
@@ -74,8 +77,10 @@ function setupSendMessageDynamic() {
     sendMessageAddr = Memory.alloc(256);
     messageAddr = Memory.alloc(512);
     messageContentAddr = Memory.alloc(32);
-    messageAddrAddr = Memory.alloc(32);
+    messageAddrAddr = Memory.alloc(64);
     contentAddr = Memory.alloc(255);
+    receiverAddr = Memory.alloc(24);
+    htmlContentAddr = Memory.alloc(24);
 
 
     // A. 写入字符串内容
@@ -126,7 +131,14 @@ function setupSendMessageDynamic() {
 
     messageContentAddr.writePointer(messageAddrAddr);
     messageAddrAddr.writePointer(messageCallbackFunc5);
-    messageAddrAddr.add(0x08).writePointer(contentAddr);
+    receiverAddr.writePointer(messageCallbackFunc6);
+    receiverAddr.add(0x08).writePointer(contentAddr);
+    messageAddrAddr.add(0x08).writePointer(receiverAddr);
+    messageAddrAddr.add(0x10).writePointer(contentAddr);
+    messageAddrAddr.add(0x18).writeU32(1);
+    messageAddrAddr.add(0x20).writeU32(Math.floor(Date.now() / 1000));
+    htmlContentAddr.writePointer(contentAddr);
+    messageAddrAddr.add(0x28).writePointer(htmlContentAddr);
 
     console.log(" [+] messageAddr Object: ", hexdump(messageAddr, {
         offset: 0,
@@ -331,6 +343,9 @@ function attachReq2buf() {
             taskIdGlobal = 0;
             receiverGlobal = "";
             contentGlobal = "";
+            send({
+                type: "finish",
+            })
         }
     });
 }
@@ -399,6 +414,7 @@ function attachProto() {
                 ansi: true
             }));
 
+
             var firstValue = sp.readU32();
             if (firstValue !== taskIdGlobal) {
                 console.log("[+] Protobuf 拦截未命中，跳过...");
@@ -407,7 +423,7 @@ function attachProto() {
             console.log("[+] 正在注入 Protobuf Payload...");
 
             const type = [0x08, 0x01, 0x12]
-            const receiverHeader = [0x0A, 0x15, 0x0A, 0x13];
+            const receiverHeader = [0x0A, receiverGlobal.length + 2, 0x0A, receiverGlobal.length];
             const receiverProto = stringToHexArray(receiverGlobal);
             const contentProto = stringToHexArray(contentGlobal);
             const contentHeader = [0x12, ...toVarint(contentProto.length)];
@@ -418,12 +434,12 @@ function attachProto() {
 
             const suffix = [
                 0x32, 0x32, 0x3C,                               // 0x28 头部
-                0x6D, 0x73, 0x67, 0x73, 0x6F, 0x73, 0x75, 0x72, // 0x30 msgsour
+                0x6D, 0x73, 0x67, 0x73, 0x6F, 0x75, 0x72, // 0x30 msgsour
                 0x63, 0x65, 0x3E, 0x3C, 0x61, 0x6C, 0x6E, 0x6F, // 0x38 ce><alno
                 0x64, 0x65, 0x3E, 0x3C, 0x66, 0x72, 0x3E, 0x31, // 0x40 de><fr>1
                 0x3C, 0x2F, 0x66, 0x72, 0x3E, 0x3C, 0x2F, 0x61, // 0x48 </fr></a
                 0x6C, 0x6E, 0x6F, 0x64, 0x65, 0x3E, 0x3C, 0x2F, // 0x50 lnode></
-                0x6D, 0x73, 0x67, 0x73, 0x6F, 0x73, 0x75, 0x72, // 0x58 msgsour
+                0x6D, 0x73, 0x67, 0x73, 0x6F, 0x75, 0x72, // 0x58 msgsour
                 0x63, 0x65, 0x3E, 0x00                          // 0x60 ce>.
             ];
 
@@ -431,8 +447,7 @@ function attachProto() {
                 contentProto.length + tsHeader.length + tsBytes.length + msgIdHeader.length + msgId.length + suffix.length)
 
             // 合并数组
-            const finalPayload = type.concat(valueLen).concat(receiverHeader).concat(receiverProto).concat(contentHeader).
-            concat(contentProto).concat(tsHeader).concat(tsBytes).concat(msgIdHeader).concat(msgId).concat(suffix);
+            const finalPayload = type.concat(valueLen).concat(receiverHeader).concat(receiverProto).concat(contentHeader).concat(contentProto).concat(tsHeader).concat(tsBytes).concat(msgIdHeader).concat(msgId).concat(suffix);
 
             console.log("[+] Payload 准备写入");
             protoX1PayloadAddr.writeByteArray(finalPayload);
@@ -473,6 +488,7 @@ function setReceiver() {
             const x1 = this.context.x1;
             var sender = x1.add(0x18).readUtf8String();
             var receiver = x1.add(0x30).readUtf8String();
+            var selfId = x1.add(0x48).readUtf8String();
 
             // 3. 从 0xd0 开始处理
             var d0Pos = x1.add(0xd0);
@@ -492,15 +508,32 @@ function setReceiver() {
                 }
             }
 
-            messageId++
+            var msgType = "private"
+            var groupId = ""
+            if (receiver.includes("@chatroom")) {
+                msgType = "group"
+                groupId = receiver
+            }
+
+            var parts = strD0.split('\u2005');
+            var messages = [];
+            for (let part of parts) {
+                if (part.startsWith("@")) {
+                    messages.push({type: "at", data: {qq: selfId}});
+                } else {
+                    messages.push({type: "text", data: {text: part}});
+                }
+            }
+
             send({
-                message_type: "private",
+                message_type: msgType,
                 user_id: sender,
-                self_id: receiver,
-                message_id: messageId,
+                self_id: selfId,
+                group_id: groupId,
+                message_id: taskIdGlobal,
                 type: "send",
                 raw: {peerUid: receiver},
-                message: [{type: "text", data: {text: strD0}}]
+                message: messages
             })
         },
     });

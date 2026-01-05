@@ -12,6 +12,7 @@ manualTrigger(0x20000095, "wxid_xxxx", "hi")
 把每一步都执行完成，然后启动微信    
 ```
 frida -U -n Gadget -l frida/succ.js
+manualTrigger(0x20000095, "wxid_xxxx", "hi")
 ```
 
 ![image](https://github.com/user-attachments/assets/401de4b8-5d10-48d9-8dcf-eecc8ae8682a)
