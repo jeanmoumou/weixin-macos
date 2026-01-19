@@ -1122,14 +1122,20 @@ function setReceiver() {
                     }
                 }
 
-                senderUser = content.substring(0, splitIndex).trim();
+                const sendUserStart = content.indexOf('wxid_')
+                senderUser = content.substring(sendUserStart, splitIndex).trim();
 
                 messages = [];
                 const parts = content.split('\u2005');
                 for (let part of parts) {
                     part = part.trim();
                     if (!part.startsWith("@")) {
-                        messages.push({type: "text", data: {text: part}});
+                        if (part.indexOf(":") !== -1) {
+                            messages.push({type: "text", data: {text: part.substring(part.indexOf(':') + 1)}});
+                        } else {
+                            messages.push({type: "text", data: {text: part}});
+                        }
+
                     }
                 }
 
