@@ -20,7 +20,7 @@ cd /Applications/WeChat.app/Contents/MacOS/
 ./frida-gadget/sign.sh           
 cp frida-gadget/FridaGadget.config /Applications/WeChat.app/Contents/Frameworks/        
 
-# 如果遇到微信启动没反应执行以下命令，一切正常则可以跳过这条命令
+# 如果遇到weixin启动没反应执行以下命令，一切正常则可以跳过这条命令
 sudo codesign --force --deep --sign - /Applications/WeChat.app
 
 frida -H 127.0.0.1:27042 -n Gadget -l ./frida/script.js   
