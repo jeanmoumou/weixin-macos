@@ -329,7 +329,7 @@ func SendWechatMsg(m *SendMsg) {
 
 func main() {
 	initFlag()
-	if config.FridaType == "Gadget" {
+	if config.FridaType == "gadget" {
 		initFridaGadget()
 	} else {
 		initFrida()
