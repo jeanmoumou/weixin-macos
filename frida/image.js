@@ -168,7 +168,6 @@ var sendMsgType = "";
 
 // 图片消息全局变量
 var uploadImageAddr = baseAddr.add(0x47D5D64);
-
 var imgProtobufAddr = baseAddr.add(0x237DFE0);
 var patchImgProtobufFunc1 = baseAddr.add(0x237DF9C)
 var patchImgProtobufFunc2 = baseAddr.add(0x237DFBC);
@@ -176,6 +175,7 @@ var imgProtobufDeleteAddr = baseAddr.add(0x237DFF8);
 var CndOnCompleteAddr = baseAddr.add(0x358D98C);
 var imgMessageCallbackFunc1 = baseAddr.add(0x865D680);
 
+var uploadImageX1;
 var imgCgiAddr = ptr(0);
 var sendImgMessageAddr = ptr(0);
 var imgMessageAddr = ptr(0);
@@ -189,7 +189,6 @@ var imageIdAddr = ptr(0)
 var md5Addr = ptr(0)
 var uploadAesKeyAddr = ptr(0)
 var ImagePathAddr1 = ptr(0)
-var uploadImagePayload = ptr(0);
 
 var globalImageCdnKey = "";
 var globalAesKey1 = "";
@@ -206,7 +205,6 @@ var atUserGlobal = "";
 const imageCp = generateBytes(16) // m30c4674f5a0b9d
 
 // -------------------------全局变量分区-------------------------
-
 
 
 // -------------------------Req2Buf公共部分分区-------------------------
@@ -298,7 +296,6 @@ function setupSendImgMessageDynamic() {
     md5Addr = Memory.alloc(256);
     uploadAesKeyAddr = Memory.alloc(256);
     ImagePathAddr1 = Memory.alloc(256);
-    uploadImagePayload = Memory.alloc(1024);
 
     // A. 写入字符串内容
     patchString(imgCgiAddr, "/cgi-bin/micromsg-bin/uploadmsgimg");
@@ -473,8 +470,6 @@ function attachProto() {
 
     Interceptor.attach(imgProtobufAddr, {
         onEnter: function (args) {
-            console.log("[+] Protobuf 拦截命中");
-
             const type = [0x0A, 0x40, 0x0A, 0x01, 0x00]
             const msgId = [0x10].concat(generateRandom5ByteVarint())
             const cpHeader = [0x1A, 0x10]
@@ -551,7 +546,6 @@ function attachProto() {
                 cdnHeader, cdn, cdn2Header, cdn2, aesKeyHeader, aesKey, randomId5, cdn3Header, cdn3, randomId6, randomId7, randomId8,
                 aesKey1Header, aesKey1, md5Header, me5Key, randomId9, left0)
 
-            console.log("[+] Payload 准备写入");
             imgProtoX1PayloadAddr.writeByteArray(finalPayload);
             console.log("[+] Payload 已写入，长度: " + finalPayload.length);
 
@@ -662,26 +656,26 @@ function triggerUploadImg(receiver, md5, imagePath) {
     patchString(uploadAesKeyAddr, generateAESKey())
     patchString(ImagePathAddr1, imagePath);
 
-    uploadImagePayload.writeByteArray(payload);
-    uploadImagePayload.writePointer(uploadFunc1Addr);
-    uploadImagePayload.add(0x08).writePointer(uploadFunc2Addr);
-    uploadImagePayload.add(0x48).writePointer(imageIdAddr);
-    uploadImagePayload.add(0x68).writeUtf8String(receiver);
-    uploadImagePayload.add(0xa8).writePointer(md5Addr);
-    uploadImagePayload.add(0xe0).writePointer(ImagePathAddr1);
-    uploadImagePayload.add(0x110).writePointer(ImagePathAddr1);
-    uploadImagePayload.add(0x140).writePointer(ImagePathAddr1);
-    uploadImagePayload.add(0x1f8).writePointer(uploadAesKeyAddr);
+    uploadImageX1.writeByteArray(payload);
+    uploadImageX1.writePointer(uploadFunc1Addr);
+    uploadImageX1.add(0x08).writePointer(uploadFunc2Addr);
+    uploadImageX1.add(0x48).writePointer(imageIdAddr);
+    uploadImageX1.add(0x68).writeUtf8String(receiver);
+    uploadImageX1.add(0xa8).writePointer(md5Addr);
+    uploadImageX1.add(0xe0).writePointer(ImagePathAddr1);
+    uploadImageX1.add(0x110).writePointer(ImagePathAddr1);
+    uploadImageX1.add(0x140).writePointer(ImagePathAddr1);
+    uploadImageX1.add(0x1f8).writePointer(uploadAesKeyAddr);
 
     const startUploadMedia = new NativeFunction(uploadImageAddr, 'int64', ['pointer', 'pointer']);
 
-    console.log(`开始手动触发 C2C 上传 X0 ${uploadGlobalX0}, X1: ${uploadImagePayload}` + hexdump(uploadImagePayload, {
+    console.log(`开始手动触发 C2C 上传 X0 ${uploadGlobalX0}, X1: ${uploadImageX1}` + hexdump(uploadImageX1, {
         offset: 0,
         length: 256,
         header: true,
         ansi: true
     }));
-    const result = startUploadMedia(uploadGlobalX0, uploadImagePayload);
+    const result = startUploadMedia(uploadGlobalX0, uploadImageX1);
     console.log("调用结果: " + result);
 }
 
@@ -689,14 +683,14 @@ function attachUploadMedia() {
     Interceptor.attach(uploadImageAddr.add(0x10), {
         onEnter: function (args) {
             uploadGlobalX0 = this.context.x0;
-            const x1 = this.context.x1;
-            const selfId = x1.add(0x68).readUtf8String();
-            const imagePath = x1.add(0xe0).readPointer().readUtf8String();
+            uploadImageX1 = this.context.x1;
+            const selfId = uploadImageX1.add(0x68).readUtf8String();
+            const imagePath = uploadImageX1.add(0xe0).readPointer().readUtf8String();
             send({
                 type: "upload",
                 self_id: selfId,
             })
-            console.log("UploadMedia x0: " + uploadGlobalX0 + " imagePath: " + imagePath + " selfId: " + selfId);
+            console.log("UploadMedia x0: " + uploadGlobalX0 + " x1: " + uploadImageX1 + " imagePath: " + imagePath + " selfId: " + selfId);
         }
     })
 }
@@ -706,7 +700,6 @@ setImmediate(attachUploadMedia);
 function patchCdnOnComplete() {
     Interceptor.attach(CndOnCompleteAddr, {
         onEnter: function (args) {
-            console.log("[+] enter CndOnUploadCompleteAddr");
 
             try {
                 const x2 = this.context.x2;
@@ -714,7 +707,7 @@ function patchCdnOnComplete() {
                 globalAesKey1 = x2.add(0x78).readPointer().readUtf8String();
                 globalMd5Key = x2.add(0x90).readPointer().readUtf8String();
                 const targetId = x2.add(0x40).readUtf8String();
-                console.log("[+] globalImageCdnKey: " + globalImageCdnKey + " globalAesKey1: " + globalAesKey1 +
+                console.log("X2" + x2 + "[+] globalImageCdnKey: " + globalImageCdnKey + " globalAesKey1: " + globalAesKey1 +
                     " globalMd5Key: " + globalMd5Key);
                 send({
                     type: "finish",

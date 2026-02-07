@@ -467,7 +467,6 @@ function attachSendTextProto() {
 
     Interceptor.attach(protobufAddr, {
         onEnter: function (args) {
-            console.log("[+] Protobuf 拦截命中");
 
             var sp = this.context.sp;
             var firstValue = sp.readU32();
@@ -542,7 +541,7 @@ function attachReq2buf() {
                 return;
             }
 
-            console.log("[+] 已命中目标Req2Buf地址:0x1033EE8E8 taskId:" + taskIdGlobal + "base:" + baseAddr);
+            console.log("[+] 已命中目标Req2Buf地址 taskId:" + taskIdGlobal + "base:" + baseAddr);
 
             // 3. 获取 X24 寄存器的值
             const x24_base = this.context.x24;
@@ -777,7 +776,6 @@ function attachProto() {
 
     Interceptor.attach(imgProtobufAddr, {
         onEnter: function (args) {
-            console.log("[+] Protobuf 拦截命中");
 
             const type = [0x0A, 0x40, 0x0A, 0x01, 0x00]
             const msgId = [0x10].concat(generateRandom5ByteVarint())
@@ -855,7 +853,6 @@ function attachProto() {
                 cdnHeader, cdn, cdn2Header, cdn2, aesKeyHeader, aesKey, randomId5, cdn3Header, cdn3, randomId6, randomId7, randomId8,
                 aesKey1Header, aesKey1, md5Header, me5Key, randomId9, left0)
 
-            console.log("[+] Payload 准备写入");
             imgProtoX1PayloadAddr.writeByteArray(finalPayload);
             console.log("[+] Payload 已写入，长度: " + finalPayload.length);
 
@@ -1006,7 +1003,6 @@ setImmediate(attachUploadMedia);
 function patchCdnOnComplete() {
     Interceptor.attach(CndOnCompleteAddr, {
         onEnter: function (args) {
-            console.log("[+] enter CndOnCompleteAddr");
 
             try {
                 const x2 = this.context.x2;
@@ -1014,7 +1010,7 @@ function patchCdnOnComplete() {
                 globalAesKey1 = x2.add(0x78).readPointer().readUtf8String();
                 globalMd5Key = x2.add(0x90).readPointer().readUtf8String();
                 const targetId = x2.add(0x40).readUtf8String();
-                console.log("[+] globalImageCdnKey: " + globalImageCdnKey + " globalAesKey1: " + globalAesKey1 +
+                console.log("CndOnUploadCompleteAddr X2"+ x2 +"[+] globalImageCdnKey: " + globalImageCdnKey + " globalAesKey1: " + globalAesKey1 +
                     " globalMd5Key: " + globalMd5Key);
                 send({
                     type: "finish",
